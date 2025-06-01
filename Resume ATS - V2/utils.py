@@ -2,6 +2,11 @@ import PyPDF2 as pdf
 import json
 from groq import Groq
 import re
+from fpdf import FPDF
+import io
+import os # To help with file paths
+
+FONT_PATH = os.path.join(os.path.dirname(__file__), "fonts", "DejaVuSans.ttf")
 
 def extract_pdf_text(uploaded_file):
     """Extract text from PDF with enhanced error handling."""
@@ -245,3 +250,23 @@ def generate_updated_resume(model, api_key, job_analysis, resume_text, match_ana
 
     except Exception as e:
         return Exception(f"Error generating cover letter: {str(e)}")
+    
+def convert_text_to_pdf(text: str) -> bytes:
+    """
+    Converts a given string of text into a PDF and returns the PDF content as bytes.
+
+    Args:
+        text: The string content to be written into the PDF.
+
+    Returns:
+        The PDF content as a byte string (bytes).
+    """
+    pdf = FPDF()
+    pdf.add_font('DejaVuSans', '', FONT_PATH, uni=True) # uni=True is crucial for Unicode support
+    pdf.add_page()
+
+    # Set the font to your newly added Unicode font
+    pdf.set_font("DejaVuSans", size=8) # Use the family name you registered
+
+    pdf.multi_cell(0, 10, text)
+    return bytes(pdf.output(dest='B'))

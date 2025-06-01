@@ -3,7 +3,7 @@ from streamlit_extras.add_vertical_space import add_vertical_space
 import os
 import json
 from dotenv import load_dotenv
-from utils import get_groq_response, extract_pdf_text, prepare_prompt, generate_cover_letter, generate_updated_resume
+from utils import get_groq_response, extract_pdf_text, prepare_prompt, generate_cover_letter, generate_updated_resume, convert_text_to_pdf
 import pandas as pd
 import plotly.express as px
 
@@ -22,7 +22,7 @@ def init_session_state():
         st.session_state.response_json = {}
     
     if "model" not in st.session_state:
-        st.session_state.model = "qwen-qwq-32b"
+        st.session_state.model = 'deepseek-r1-distill-llama-70b'
 
 
 def main():
@@ -253,10 +253,12 @@ def main():
                             updated_resume = generate_updated_resume(dict[option], api_key, jd, st.session_state.resume_text, st.session_state.response_json)
                             st.markdown("### Your Updated Resume 📝")
                             st.text_area("", updated_resume, height=400)
+                            # Convert text to PDF
+                            pdf_data = convert_text_to_pdf(updated_resume)
                             # Provide a download button for the updated resume
                             st.download_button(
                                 "Download Updated Resume 📥",
-                                updated_resume,
+                                pdf_data,
                                 "updated_resume.pdf",
                                 mime="application/pdf"
                             )
