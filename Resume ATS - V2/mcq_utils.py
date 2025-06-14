@@ -48,147 +48,6 @@ class QuestionGenerator:
         self.Personality_Traits = ['Conscientiousness', 'Extraversion', 'Agreeableness', 'Emotional Stability', 'Openness to Experience']
         self.Workplace_Behaviors = ['Teamwork', 'Problem-solving', 'Adaptability', 'Initiative', 'Communication', 'Time Management']
 
-    def generate_mcq_abstract(self) -> MCQQuestion:
-        """
-        Generate Multiple Choice Question with robust error handling
-        Includes:
-        - Output parsing using Pydantic
-        - Structured prompt template
-        - Multiple retry attempts on failure
-        - Validation of generated questions
-        """
-        # Set up Pydantic parser for type checking and validation
-        mcq_parser = PydanticOutputParser(pydantic_object=MCQQuestion)
-
-        
-        prompt_template = ChatPromptTemplate.from_messages([
-            ("system", """
-            You are an expert in designing abstract reasoning questions for cognitive assessments. Generate a high-quality abstract reasoning question that tests pattern recognition, logical sequences, or abstract relationships.
-
-            Guidelines:
-            - Use only characters and symbols that can be typed on a standard computer keyboard (ASCII).
-            - Do not use visual shapes, diagrams, or images.
-            - Avoid cultural or language-based clues.
-            - The question can vary in difficulty (from medium to hard).
-            - Provide **exactly 5 multiple-choice options**.
-            - Include the correct answer and a brief explanation of the logic or pattern.
-            - Format it in plain text (ASCII) or describe it clearly if visual.
-            - Review the previous conversation history and ensure that the generated question is not a duplicate or close paraphrase of any previously generated question.
-            - Output the response in valid **JSON format** with the following structure:
-
-            {{
-                "question": "<Describe the question clearly>",
-                "options": ["<Option A>", "<Option B>", "<Option C>", "<Option D>", "<Option E>"],
-                "correct_answer": "<Correct option>",
-                "explanation": "<Explanation of the pattern or logic>"
-            }}
-
-            Return ONLY the JSON. Do not add explanations, formatting, or markdown.
-        """),
-            MessagesPlaceholder(variable_name="history"),  # Inject memory here
-            ("human", "{input}")  # Insert user input dynamically
-        ])
-        # Generate response using LLM
-        # Set up the chain using the Groq model, memory, and custom prompt template
-        chain = LLMChain(
-            llm=self.llm,
-            prompt=prompt_template,
-            memory=self.memory,
-            verbose=False
-        )
-        # Implement retry logic with maximum attempts
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                # Generate response using LLM
-                response = chain.run(input= " ")
-                return json.loads(response)
-                # parsed_response = mcq_parser.parse(response)
-                
-                # Validate the generated question meets requirements
-                # if not parsed_response.question or len(parsed_response.options) != 5 or not parsed_response.correct_answer:
-                #     raise ValueError("Invalid question format")
-                # if parsed_response.correct_answer not in parsed_response.options:
-                #     raise ValueError("Correct answer not in options")
-                
-                # return parsed_response
-            except Exception as e:
-                # On final attempt, raise error; otherwise continue trying
-                if attempt == max_attempts - 1:
-                    raise RuntimeError(f"Failed to generate valid MCQ after {max_attempts} attempts: {str(e)}")
-                continue
-    
-
-    def generate_mcq_deductive(self) -> MCQQuestion:
-        """
-        Generate Multiple Choice Question with robust error handling
-        Includes:
-        - Output parsing using Pydantic
-        - Structured prompt template
-        - Multiple retry attempts on failure
-        - Validation of generated questions
-        """
-        # Set up Pydantic parser for type checking and validation
-        mcq_parser = PydanticOutputParser(pydantic_object=MCQQuestion)
-
-        
-        prompt_template = ChatPromptTemplate.from_messages([
-            ("system", """
-            You are a psychometric test designer. Generate a verbal deductive reasoning question suitable for an aptitude test. The question must present a short passage or set of statements from which a conclusion must be logically derived.
-
-            Return the output in the following JSON format:
-
-            {{
-                "question": "<Describe the verbal reasoning scenario or statements>",
-                "options": ["<Option A>", "<Option B>", "<Option C>", "<Option D>", "<Option E>"],
-                "correct_answer": "<Correct option>",
-                "explanation": "<Explanation of the deductive logic used to derive the correct answer>"
-            }}
-
-            Guidelines:
-            - The question should rely purely on deductive logic from the given text, not external knowledge.
-            - Only one correct answer among the five.
-            - The explanation must clearly walk through the reasoning used.
-            - The language should be clear and neutral, suitable for professional aptitude tests.
-            - Review the previous conversation history and ensure that the generated question is not a duplicate or close paraphrase of any previously generated question.
-
-            Generate ONE such verbal deductive reasoning question.
-
-            Return ONLY the JSON. Do not add explanations, formatting, or markdown.
-        """),
-            MessagesPlaceholder(variable_name="history"),  # Inject memory here
-            ("human", "{input}")  # Insert user input dynamically
-        ])
-        # Generate response using LLM
-        # Set up the chain using the Groq model, memory, and custom prompt template
-        chain = LLMChain(
-            llm=self.llm,
-            prompt=prompt_template,
-            memory=self.memory,
-            verbose=False
-        )
-        # Implement retry logic with maximum attempts
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                # Generate response using LLM
-                response = chain.run(input= " ")
-                return json.loads(response)
-                # parsed_response = mcq_parser.parse(response)
-                
-                # Validate the generated question meets requirements
-                # if not parsed_response.question or len(parsed_response.options) != 5 or not parsed_response.correct_answer:
-                #     raise ValueError("Invalid question format")
-                # if parsed_response.correct_answer not in parsed_response.options:
-                #     raise ValueError("Correct answer not in options")
-                
-                # return parsed_response
-            except Exception as e:
-                # On final attempt, raise error; otherwise continue trying
-                if attempt == max_attempts - 1:
-                    raise RuntimeError(f"Failed to generate valid MCQ after {max_attempts} attempts: {str(e)}")
-                continue
-    
     def generate_mcq(self, topic: str) -> MCQQuestion:
         """
         Generate Multiple Choice Question with robust error handling
@@ -269,4 +128,101 @@ class QuestionGenerator:
                 if attempt == max_attempts - 1:
                     raise RuntimeError(f"Failed to generate valid MCQ after {max_attempts} attempts: {str(e)}")
                 continue
-    
+
+def get_response(model, result):
+    llm = ChatGroq(
+        api_key=os.getenv('GROQ_API_KEY'), 
+        model=model,
+        temperature=0.9
+    )
+
+    question = result['question']
+    user_response = result['user_answer']
+
+    prompt_template = ChatPromptTemplate.from_template("""
+You are an intelligent psychometric analysis agent.
+
+Given a psychometric question and a user's Likert-scale response, do the following:
+
+1. Identify the most relevant psychological dimension the question assesses.
+2. Evaluate the Likert-scale response by mapping it to a normalized score (range: 0.0 to 1.0).
+3. Assign a label based on the score:
+   - "Low" for 0.0–0.33,
+   - "Moderate" for >0.33–0.66,
+   - "High" for >0.66–1.0.
+4. Write a brief reasoning describing what the user's response reveals about their behavior or personality related to the inferred dimension.
+
+Use only the following list of dimensions:
+
+Personality Traits:
+- Conscientiousness
+- Extraversion
+- Agreeableness
+- Emotional Stability
+- Openness to Experience
+
+Workplace Behaviors:
+- Teamwork
+- Problem-solving
+- Adaptability
+- Initiative
+- Communication
+- Time Management
+
+Input:
+Question: {question}  
+Likert Response: {user_response} (e.g., "Strongly Agree", "Disagree", etc.)
+
+⛔ Important:
+- You must return **only** a valid JSON object.
+- Do **not** include any explanation, headers, bullet points, or markdown.
+- The JSON must be the only thing in your output.
+
+Output format:
+{{
+  "inferred_dimension": "<inferred dimension from list>",
+  "original_response": "{user_response}",
+  "normalized_score": float between 0.0 and 1.0,
+  "label": "Low" | "Moderate" | "High",
+  "reasoning": "What the user's response implies about their behavior or personality in relation to the inferred dimension."
+}}
+
+Example Input:
+Question: "I often take the lead when a new task is assigned to my team."  
+Likert Response: "Strongly Agree"
+
+Expected Output:
+{{
+  "inferred_dimension": "Initiative",
+  "original_response": "Strongly Agree",
+  "normalized_score": 1.0,
+  "label": "High",
+  "reasoning": "The user consistently takes charge in team settings, indicating a strong sense of initiative and leadership."
+}}
+""")
+
+    # Generate response using LLM
+    chain = LLMChain(
+        llm=llm,
+        prompt=prompt_template,
+        verbose=False
+    )
+
+    response = chain.run({
+        "question": question,
+        "user_response": user_response
+    }).strip()
+
+    # Implement retry logic with maximum attempts
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        try:
+            response_dict = json.loads(response)
+            return response_dict
+        except json.JSONDecodeError as e:
+            if attempt == max_attempts - 1:
+                print("JSON parsing failed:", e)
+                print("Raw LLM output:", response)
+                raise RuntimeError(f"Failed to parse LLM response as JSON after {max_attempts} attempts: {str(e)}")
+            continue
+            

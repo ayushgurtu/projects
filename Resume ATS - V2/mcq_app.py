@@ -2,9 +2,11 @@
 import streamlit as st
 import pandas as pd
 import random
-from mcq_utils import QuestionGenerator
+from mcq_utils import QuestionGenerator, get_response
 import os
-import time
+import numpy as np
+import plotly.express as px
+import matplotlib.pyplot as plt
 
 # Main class to handle quiz functionality
 class QuizManager:
@@ -51,61 +53,6 @@ class QuizManager:
             return False
         return True
     
-    def generate_questions_abstract(self, generator, question_type, num_questions):
-        # Reset all lists before generating new questions
-        self.questions = []
-        self.user_answers = []
-        self.results = []
-
-        try:
-            
-            # Generate specified number of questions
-            for _ in range(num_questions):
-                # Handle Multiple Choice Questions
-                if question_type == "Multiple Choice":
-                    question = generator.generate_mcq_abstract()
-                    self.questions.append({
-                        'type': 'MCQ',
-                        'question': question["question"],
-                        'options': question["options"],
-                        'category':  "Abstract Reasoning",
-                        'correct_answer': question['correct_answer'],
-                        'explaination': question['explanation']
-                    })
-        except Exception as e:
-            # Display error if question generation fails
-            st.error(f"Error generating questions: {e}")
-            return False
-        return True
-    
-
-    def generate_questions_deductive(self, generator, question_type, num_questions):
-        # Reset all lists before generating new questions
-        self.questions = []
-        self.user_answers = []
-        self.results = []
-
-        try:
-            
-            # Generate specified number of questions
-            for _ in range(num_questions):
-                # Handle Multiple Choice Questions
-                if question_type == "Multiple Choice":
-                    question = generator.generate_mcq_deductive()
-                    self.questions.append({
-                        'type': 'MCQ',
-                        'question': question["question"],
-                        'options': question["options"],
-                        'category':  "Deductive Reasoning",
-                        'correct_answer': question['correct_answer'],
-                        'explaination': question['explanation']
-                    })
-        except Exception as e:
-            # Display error if question generation fails
-            st.error(f"Error generating questions: {e}")
-            return False
-        return True
-
     def attempt_quiz(self):
         # Display questions and collect user answers
         for i, q in enumerate(self.questions):
@@ -117,16 +64,13 @@ class QuizManager:
                 user_answer = st.radio(
                     f"Select an answer for Question {i+1}", 
                     q['options'], 
-                    key=f"mcq_{i}_{int(time.time())}"
+                    key=f"mcq_{i}"
                 )
-                self.user_answers.append(user_answer)
-            # Handle Fill in the Blank input using text input
-            else:
-                user_answer = st.text_input(
-                    f"Fill in the blank for Question {i+1}", 
-                    key=f"fill_blank_{i}"
-                )
-                self.user_answers.append(user_answer)
+                # self.user_answers.append(user_answer)
+            # Update only if changed
+            st.session_state.user_answers[i] = user_answer
+        # Update the instance variable
+        self.user_answers = st.session_state.user_answers
 
     def evaluate_quiz(self):
         # Reset results before evaluation
@@ -136,24 +80,15 @@ class QuizManager:
             # Create base result dictionary
             result_dict = {
                 'question_number': i + 1,
-                'category':  q['category'],
                 'question': q['question'],
                 'question_type': q['type'],
-                'user_answer': user_ans,
-                'correct_answer': q['correct_answer'],
-                'explaination': q['explaination'],
-                'is_correct': False
+                'user_answer': user_ans
             }
-            
-            # Evaluate MCQ answers
-            if q['type'] == 'MCQ':
-                result_dict['options'] = q['options']
-                result_dict['is_correct'] = user_ans == q['correct_answer']
-            # Evaluate Fill in the Blank answers
-            else:
-                result_dict['options'] = []
-                result_dict['is_correct'] = user_ans.strip().lower() == q['correct_answer'].strip().lower()
-            
+            response = get_response(st.session_state.model, result_dict)
+            result_dict['Dimension'] = response.get('inferred_dimension', None)
+            result_dict['Score'] = response.get('normalized_score', None)
+            result_dict['Label'] = response.get('label', None) 
+            result_dict['Reasoning'] = response.get('reasoning', None) 
             self.results.append(result_dict)
 
     def generate_result_dataframe(self):
@@ -209,6 +144,8 @@ def main():
         st.session_state.topic = 'Psychometry'
     if "display" in st.session_state:
         st.session_state.display = False
+    if "user_answers" not in st.session_state:
+        st.session_state.user_answers = [None]
 
     # Set page title
     st.title("Assessment Generator")
@@ -226,7 +163,7 @@ def main():
         "Llama 3 8B": "llama3-8b-8192",
         "Llama 4 Maverick 17B 128E": "meta-llama/llama-4-maverick-17b-128e-instruct",
         "Llama 4 Scout 17B 16E": "meta-llama/llama-4-scout-17b-16e-instruct",
-        "Mistral Saba 24B": "mistral-saba-24b"
+        # "Mistral Saba 24B": "mistral-saba-24b"
     }
     
     # API selection dropdown
@@ -251,217 +188,121 @@ def main():
         index=0
     )
 
-    if dict[api_choice] != st.session_state.model or topic != st.session_state.topic:
-        st.session_state.quiz_manager = QuizManager()
-        st.session_state.quiz_generated = False
-        st.session_state.quiz_submitted = False
-        st.session_state.model = dict[api_choice]
-        st.session_state.topic = topic
-        st.session_state.display = False
-
-    # Difficulty level selection
-    # difficulty = st.sidebar.selectbox(
-    #     "Difficulty Level", 
-    #     ["Easy", "Medium", "Hard"], 
-    #     index=1
-    # )
 
     # Number of questions input
     num_questions = st.sidebar.number_input(
         "Number of Questions", 
         min_value=0, 
         max_value=100, 
-        value=100
+        value=10
     )
 
+    if dict[api_choice] != st.session_state.model or topic != st.session_state.topic:
+        st.session_state.quiz_manager = QuizManager()
+        st.session_state.quiz_generated = False
+        st.session_state.quiz_submitted = False
+        st.session_state.model = dict[api_choice]
+        st.session_state.topic = topic
+        st.session_state.user_answers = [None] * num_questions
+
     if st.sidebar.button("Generate Questions"):
-
         if st.session_state.topic == "Psychometry":
-
-            # Generate quiz button handler
-            
             st.session_state.quiz_submitted = False
+            st.session_state.user_answers = [None] * num_questions
             generator = QuestionGenerator(dict[api_choice])
             st.session_state.quiz_generated = st.session_state.quiz_manager.generate_questions(
                 generator, "Multiple Choice", num_questions
             )
-            # st.rerun()
+            st.rerun()
 
-            
-                
-                # Submit quiz button handler
-                # if st.button("Submit Quiz"):
-                #     st.session_state.quiz_manager.evaluate_quiz()
-                #     st.session_state.quiz_submitted = True
-                #     st.rerun()
-            
-            # Display results if quiz is submitted
-            if st.session_state.quiz_submitted:
-                st.header("Quiz Results")
-                results_df = st.session_state.quiz_manager.generate_result_dataframe()
-                
-                # Show results if available
-                if not results_df.empty:
-                    # Calculate and display score
-                    correct_count = results_df['is_correct'].sum()
-                    total_questions = len(results_df)
-                    score_percentage = (correct_count / total_questions) * 100
-                    
-                    st.write(f"Score: {correct_count}/{total_questions} ({score_percentage:.1f}%)")
-                    
-                    # Display detailed results for each question
-                    for _, result in results_df.iterrows():
-                        question_num = result['question_number']
-                        if result['is_correct']:
-                            st.success(f"✅ Question {question_num}: {result['question']}")
-                        else:
-                            st.error(f"❌ Question {question_num}: {result['question']}")
-                            st.write(f"Your Answer: {result['user_answer']}")
-                            st.write(f"Correct Answer: {result['correct_answer']}")
-                        
-                        st.markdown("---")
-                    
-                    # Save results button handler
-                    if st.button("Save Results"):
-                        saved_file = st.session_state.quiz_manager.save_to_csv()
-                        if saved_file:
-                            with open(saved_file, 'rb') as f:
-                                st.download_button(
-                                    label="Download Results",
-                                    data=f.read(),
-                                    file_name=os.path.basename(saved_file),
-                                    mime='text/csv'
-                                )
-                else:
-                    st.warning("No results available. Please complete the quiz first.")
-        
-        if st.session_state.topic == "Deductive Reasoning":
-
-            # Generate quiz button handler
-            
-            st.session_state.quiz_submitted = False
-            generator = QuestionGenerator(dict[api_choice])
-            st.session_state.quiz_generated = st.session_state.quiz_manager.generate_questions_deductive(
-                generator, "Multiple Choice", num_questions
-            )
-            # st.rerun()
-
-            # Display quiz if generated
-            # if st.session_state.quiz_generated and st.session_state.quiz_manager.questions:
-            #     st.header("Psychometric Test")
-            #     st.session_state.quiz_manager.attempt_quiz()
-                
-                # Submit quiz button handler
-                # if st.button("Submit Quiz"):
-                #     st.session_state.quiz_manager.evaluate_quiz()
-                #     st.session_state.quiz_submitted = True
-                #     st.rerun()
-            
-            # Display results if quiz is submitted
-            if st.session_state.quiz_submitted:
-                st.header("Quiz Results")
-                results_df = st.session_state.quiz_manager.generate_result_dataframe()
-                
-                # Show results if available
-                if not results_df.empty:
-                    # Calculate and display score
-                    correct_count = results_df['is_correct'].sum()
-                    total_questions = len(results_df)
-                    score_percentage = (correct_count / total_questions) * 100
-                    
-                    st.write(f"Score: {correct_count}/{total_questions} ({score_percentage:.1f}%)")
-                    
-                    # Display detailed results for each question
-                    for _, result in results_df.iterrows():
-                        question_num = result['question_number']
-                        if result['is_correct']:
-                            st.success(f"✅ Question {question_num}: {result['question']}")
-                        else:
-                            st.error(f"❌ Question {question_num}: {result['question']}")
-                            st.write(f"Your Answer: {result['user_answer']}")
-                            st.write(f"Correct Answer: {result['correct_answer']}")
-                        
-                        st.markdown("---")
-                    
-                    # Save results button handler
-                    if st.button("Save Results"):
-                        saved_file = st.session_state.quiz_manager.save_to_csv()
-                        if saved_file:
-                            with open(saved_file, 'rb') as f:
-                                st.download_button(
-                                    label="Download Results",
-                                    data=f.read(),
-                                    file_name=os.path.basename(saved_file),
-                                    mime='text/csv'
-                                )
-                else:
-                    st.warning("No results available. Please complete the quiz first.")
-        
-        if st.session_state.topic == "Abstract and Reasoning":
-            
-            st.session_state.quiz_submitted = False
-            generator = QuestionGenerator(dict[api_choice])
-            st.session_state.quiz_generated = st.session_state.quiz_manager.generate_questions_abstract(
-                generator, "Multiple Choice", num_questions
-            )
-            # st.rerun()
-            
-            # Display quiz if generated
-            # if st.session_state.quiz_generated and st.session_state.quiz_manager.questions:
-            #     st.header("Psychometric Test")
-            #     st.session_state.quiz_manager.attempt_quiz()
-                
-                # Submit quiz button handler
-                # if st.button("Submit Quiz"):
-                #     st.session_state.quiz_manager.evaluate_quiz()
-                #     st.session_state.quiz_submitted = True
-                #     st.rerun()
-            
-            # Display results if quiz is submitted
-            if st.session_state.quiz_submitted:
-                st.header("Quiz Results")
-                results_df = st.session_state.quiz_manager.generate_result_dataframe()
-                
-                # Show results if available
-                if not results_df.empty:
-                    # Calculate and display score
-                    correct_count = results_df['is_correct'].sum()
-                    total_questions = len(results_df)
-                    score_percentage = (correct_count / total_questions) * 100
-                    
-                    st.write(f"Score: {correct_count}/{total_questions} ({score_percentage:.1f}%)")
-                    
-                    # Display detailed results for each question
-                    for _, result in results_df.iterrows():
-                        question_num = result['question_number']
-                        if result['is_correct']:
-                            st.success(f"✅ Question {question_num}: {result['question']}")
-                        else:
-                            st.error(f"❌ Question {question_num}: {result['question']}")
-                            st.write(f"Your Answer: {result['user_answer']}")
-                            st.write(f"Correct Answer: {result['correct_answer']}")
-                        
-                        st.markdown("---")
-                    
-                    # Save results button handler
-                    if st.button("Save Results"):
-                        saved_file = st.session_state.quiz_manager.save_to_csv()
-                        if saved_file:
-                            with open(saved_file, 'rb') as f:
-                                st.download_button(
-                                    label="Download Results",
-                                    data=f.read(),
-                                    file_name=os.path.basename(saved_file),
-                                    mime='text/csv'
-                                )
-                else:
-                    st.warning("No results available. Please complete the quiz first.")
-
-# Display quiz if generated
-    if st.session_state.quiz_generated and st.session_state.quiz_manager.questions: # and not st.session_state.display
-        # st.session_state.display = True
-        st.header(st.session_state.topic+  " Test")
+    # 🚨 Move the rest OUTSIDE the button click
+    if st.session_state.quiz_generated and st.session_state.quiz_manager.questions:
+        st.header(st.session_state.topic + " Test")
         st.session_state.quiz_manager.attempt_quiz()
+
+        # Submit quiz button
+        if st.button("Submit Quiz"):
+            st.session_state.quiz_manager.evaluate_quiz()
+            st.session_state.quiz_submitted = True
+            st.rerun()
+
+    # Display results if quiz is submitted
+    # Display results if quiz is submitted
+
+
+    if st.session_state.quiz_submitted:
+        st.header("📊 Psychometric Quiz Results")
+        results_df = st.session_state.quiz_manager.generate_result_dataframe()
+        
+        if not results_df.empty:
+            total_questions = len(results_df)
+            avg_score = results_df['Score'].mean() * 100
+
+            st.info(f"**Psychometric Profile Intensity:** {avg_score:.1f}% — based on {total_questions} insights")
+
+            # Create two columns for side-by-side charts
+            col1, col2 = st.columns(2)
+
+            # --- Pie Chart in col1 ---
+            with col1:
+                st.subheader("🔹Score Label Distribution")
+                label_counts = results_df['Label'].value_counts().reset_index()
+                label_counts.columns = ['Label', 'Count']
+                fig2 = px.pie(label_counts, names='Label', values='Count', title='Low / Moderate / High Distribution')
+                st.plotly_chart(fig2, use_container_width=True)
+
+            # --- Radar Chart in col2 ---
+            with col2:
+                st.subheader("🔹Dimension-wise Profile")
+
+                # Prepare radar data
+                categories = results_df['Dimension'].unique().tolist()
+                values = results_df.groupby('Dimension')['Score'].mean().reindex(categories).fillna(0).tolist()
+                values += values[:1]
+                angles = np.linspace(0, 2 * np.pi, len(categories), endpoint=False).tolist()
+                angles += angles[:1]
+
+                fig, ax = plt.subplots(figsize=(6, 6), subplot_kw={'polar': True})
+                ax.plot(angles, values, linewidth=2, linestyle='solid', label='Average Score')
+                ax.fill(angles, values, alpha=0.25)
+                ax.set_xticks(angles[:-1])
+                ax.set_xticklabels(categories)
+                ax.set_yticklabels([])
+                ax.set_title("Dimension-wise Normalized Score Radar", y=1.08)
+                ax.grid(True)
+
+                st.pyplot(fig)
+
+            # === Show Table with Color-Coding ===
+            st.subheader("🔹 Detailed Breakdown")
+            # styled_df = results_df.style.background_gradient(subset=['Score'], cmap='YlGnBu')
+            # st.dataframe(styled_df, use_container_width=True)
+
+            # === Show Per Question Breakdown ===
+            for _, result in results_df.iterrows():
+                question_num = result['question_number']
+                st.markdown(f"#### Question {question_num}")
+                st.write(f"**Question:** {result['question']}")
+                st.write(f"**Your Answer:** {result['user_answer']}")
+                st.write(f"**Inferred Dimension:** {result['Dimension']}")
+                st.write(f"**Score:** {result['Score']:.2f} ({result['Label']})")
+                st.write(f"**Reasoning:** {result['Reasoning']}")
+                st.markdown("---")
+
+            # === Save Results ===
+            if st.button("💾 Save Results"):
+                saved_file = st.session_state.quiz_manager.save_to_csv()
+                if saved_file:
+                    with open(saved_file, 'rb') as f:
+                        st.download_button(
+                            label="📥 Download CSV",
+                            data=f.read(),
+                            file_name=os.path.basename(saved_file),
+                            mime='text/csv'
+                        )
+        else:
+            st.warning("⚠️ No results available. Please complete the quiz first.")
+
 
 # Entry point of the application
 if __name__ == "__main__":
